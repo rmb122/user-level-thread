@@ -7,6 +7,10 @@
 #IncludeRegexTransform: 
 
 /home/rmb122/temp/ult/main.c
+ul_thread.c
+/home/rmb122/temp/ult/ul_thread.c
+
+/home/rmb122/temp/ult/ul_thread.c
 stdio.h
 -
 ucontext.h
@@ -19,4 +23,8 @@ malloc.h
 -
 memory.h
 -
+ul_thread.h
+/home/rmb122/temp/ult/ul_thread.h
+
+/home/rmb122/temp/ult/ul_thread.h
 
