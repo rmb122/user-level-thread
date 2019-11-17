@@ -1,0 +1,22 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/rmb122/temp/ult/main.c
+stdio.h
+-
+ucontext.h
+-
+signal.h
+-
+sys/time.h
+-
+malloc.h
+-
+memory.h
+-
+
