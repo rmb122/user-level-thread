@@ -11,5 +11,7 @@ ult_tcb *ult_pop_from_list(ult_tcb *tcb_list);
 void ult_clean_dead_thread();
 void ult_debug_print_list(ult_tcb *tcb_list, char *name);
 void ult_scheduler_ticksleep();
+void ult_debug_all_list();
 void ult_schedule_sleep_thread();
+int ult_gettid();
 #endif //ULT_UL_THREAD_H

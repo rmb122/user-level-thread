@@ -3,11 +3,12 @@
 void test() {
     int t = 0;
     printf("Thread TID %d\n", ult_gettid());
-    for (int i = 0; i < 1000000000; i++) {
+    for (int i = 0; i < 1000000; i++) {
         t++;
         if (i % 100000 == 0) {
-            ult_thread_sleep(1e8);
-            printf("Thread TID %d\n", ult_gettid());
+            printf("Thread TID %d start sleep\n", ult_gettid());
+            ult_thread_sleep(1000);
+            printf("Thread TID %d wakeup\n", ult_gettid());
             printf("Count Test: %d\n", t);
         }
     }
@@ -18,8 +19,12 @@ void test() {
 int main() {
     ult_thread_create(&test, NULL);
     ult_thread_create(&test, NULL);
-
+    ult_thread_create(&test, NULL);
+    int count = 0;
     for(;;) {
-        ult_thread_sleep(1e8);
+        printf("Test\n");
+        count++;
+        ult_thread_create(&test, NULL);
+        ult_thread_sleep(1000);
     }
 }

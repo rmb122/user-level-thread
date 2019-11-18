@@ -30,7 +30,7 @@ typedef struct __ult_tcb {
     int tid;
     int status;
     int priority;
-    long sleep_remain;
+    long long int sleep_remain;
 } ult_tcb;
 
 enum {
@@ -40,7 +40,7 @@ enum {
     ULT_STATUS_DEAD = 3
 };
 
-static int SCHEDULER_TICK = 200000;
+static int SCHEDULER_TICK = 10000; // 大概一秒调度 100 次
 static int ULT_STACK_SIZE = 10240;
 static int ult_thread_count = 0;
 static ucontext_t *ult_main_context = NULL;
@@ -78,6 +78,7 @@ void ult_scheduler() {
                 signal(SIGALRM, ult_scheduler);
                 swapcontext(__ult_temp_tcb_b->context, ult_curr_tcb->context);
             }
+            signal(SIGALRM, ult_scheduler);
             break;
         case ULT_STATUS_DEAD:
             ult_clean_dead_thread();
@@ -94,9 +95,9 @@ void ult_scheduler() {
             signal(SIGALRM, ult_scheduler);
             setcontext(ult_curr_tcb->context);
             break;
-        case ULT_STATUS_SLEEP:
+        case ULT_STATUS_SLEEP: // 进入这里的分支, 还没保存线程的 context, 所以不能先添加到
+            __ult_temp_tcb_a = ult_curr_tcb;
             ult_tcb_add_to_list(ult_curr_tcb, ult_sleep_tcb);
-
             __ult_temp_curr_tcb = ult_pop_from_list(ult_ready_tcb);
             while (__ult_temp_curr_tcb == NULL) {
                 ult_scheduler_ticksleep();
@@ -106,7 +107,7 @@ void ult_scheduler() {
             ult_curr_tcb = __ult_temp_curr_tcb;
             ult_curr_tcb->status = ULT_STATUS_RUNNING;
             signal(SIGALRM, ult_scheduler);
-            setcontext(ult_curr_tcb->context);
+            swapcontext(__ult_temp_tcb_a->context, ult_curr_tcb->context);
             break;
     }
 }
@@ -114,7 +115,7 @@ void ult_scheduler() {
 void ult_scheduler_ticksleep() {
     struct timespec ts = {
             0,
-            SCHEDULER_TICK
+            SCHEDULER_TICK * 1000 // microsecond to nanosecond
     };
     while (nanosleep(&ts, &ts) == -1) {
     }
@@ -122,8 +123,9 @@ void ult_scheduler_ticksleep() {
 
 void ult_schedule_sleep_thread() {
     struct timespec curr_time = {0, 0};
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &curr_time);
-    long time_diff = curr_time.tv_nsec - ult_last_sleep_schedule.tv_nsec;
+    clock_gettime(CLOCK_REALTIME, &curr_time); // 睡眠按照实际时间来
+    long long int time_diff = ((long long int)curr_time.tv_sec * 1000000000 + (long long int)curr_time.tv_nsec) -
+            ((long long int)ult_last_sleep_schedule.tv_sec * 1000000000 + (long long int)ult_last_sleep_schedule.tv_nsec);
     ult_tcb *curr = ult_sleep_tcb->next;
     ult_tcb *tmp = NULL;
     while (curr != NULL) {
@@ -144,13 +146,13 @@ void ult_schedule_sleep_thread() {
 }
 
 void ult_settimer() {
-    signal(SIGVTALRM, ult_scheduler);
+    signal(SIGALRM, ult_scheduler);
     struct itimerval value;
     value.it_value.tv_sec = 0;
     value.it_value.tv_usec = 1;
     value.it_interval.tv_sec = 0;
     value.it_interval.tv_usec = SCHEDULER_TICK;
-    setitimer(ITIMER_VIRTUAL, &value, NULL);
+    setitimer(ITIMER_REAL, &value, NULL);
 }
 
 ucontext_t* ult_make_context(void (*func)(), ucontext_t *link_context, void *arg) {
@@ -171,6 +173,7 @@ ucontext_t* ult_make_context(void (*func)(), ucontext_t *link_context, void *arg
 }
 
 void ult_thread_exit() {
+    signal(SIGALRM, SIG_IGN);
     ult_curr_tcb->status = ULT_STATUS_DEAD;
     ult_scheduler();
 }
@@ -179,9 +182,9 @@ void ult_tcb_add_to_list(ult_tcb *tcb, ult_tcb *tcb_list) {
     while (tcb_list->next != NULL) {
         tcb_list = tcb_list->next;
     }
-    tcb_list->next = tcb;
     tcb->prev = tcb_list;
     tcb->next = NULL;
+    tcb_list->next = tcb;
 }
 
 ult_tcb *ult_pop_from_list(ult_tcb *tcb_list) {
@@ -199,12 +202,23 @@ ult_tcb *ult_pop_from_list(ult_tcb *tcb_list) {
 }
 
 void ult_debug_print_list(ult_tcb *tcb_list, char *name) {
-    printf("name: %s", name);
+    printf("tid: %d | name: %s", ult_gettid(), name);
+    if (tcb_list->tid != -1 || tcb_list->status != 0) {
+        printf("[FATAL] tcb_list->tid != -1 || tcb_list->status != 0");
+    }
+    tcb_list = tcb_list->next;
     while (tcb_list != NULL) {
         printf(" | tid: %d, status: %d", tcb_list->tid, tcb_list->status);
         tcb_list = tcb_list->next;
     }
     printf("\n");
+}
+
+void ult_debug_all_list() {
+    ult_debug_print_list(ult_sleep_tcb, "sleep");
+    ult_debug_print_list(ult_ready_tcb, "ready");
+    ult_debug_print_list(ult_dead_tcb, " dead");
+    printf("=====================\n");
 }
 
 void ult_clean_dead_thread() {
@@ -241,12 +255,14 @@ void ult_init_main_context() {
         ult_dead_tcb->tid = -1;
         ult_sleep_tcb = malloc(sizeof(ult_tcb));
         ult_sleep_tcb->tid = -1;
-        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ult_last_sleep_schedule);
+        clock_gettime(CLOCK_REALTIME, &ult_last_sleep_schedule); // 定时信号, 按实际时间来
         ult_settimer();
     }
 }
 
 void ult_thread_create(void (*func)(), void *arg) {
+    signal(SIGALRM, SIG_IGN);
+
     ult_init_main_context();
     ucontext_t *exit_ucontext = ult_make_context(&ult_thread_exit, NULL, NULL);
     ucontext_t *ucontext = ult_make_context(func, exit_ucontext, arg);
@@ -258,12 +274,15 @@ void ult_thread_create(void (*func)(), void *arg) {
     tcb->context = ucontext;
     tcb->sleep_remain = 0;
     ult_thread_count++;
+
     ult_tcb_add_to_list(tcb, ult_ready_tcb);
+    signal(SIGALRM, ult_scheduler);
 }
 
-void ult_thread_sleep(int nanotime) {
+void ult_thread_sleep(long int milltime) {
+    signal(SIGALRM, SIG_IGN);
     ult_curr_tcb->status = ULT_STATUS_SLEEP;
-    ult_curr_tcb->sleep_remain = nanotime;
+    ult_curr_tcb->sleep_remain = ((long long int) milltime) * 1000000;
     ult_scheduler();
 }
 
