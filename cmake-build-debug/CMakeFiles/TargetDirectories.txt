@@ -1,3 +1,0 @@
-/home/rmb122/temp/ult/cmake-build-debug/CMakeFiles/rebuild_cache.dir
-/home/rmb122/temp/ult/cmake-build-debug/CMakeFiles/ult.dir
-/home/rmb122/temp/ult/cmake-build-debug/CMakeFiles/edit_cache.dir
