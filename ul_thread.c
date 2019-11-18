@@ -95,7 +95,7 @@ void ult_scheduler() {
             signal(SIGALRM, ult_scheduler);
             setcontext(ult_curr_tcb->context);
             break;
-        case ULT_STATUS_SLEEP: // 进入这里的分支, 还没保存线程的 context, 所以不能先添加到
+        case ULT_STATUS_SLEEP: // 进入这里的分支一定是 ULT_STATUS_SLEEP, 所以不用额外再设置一遍
             __ult_temp_tcb_a = ult_curr_tcb;
             ult_tcb_add_to_list(ult_curr_tcb, ult_sleep_tcb);
             __ult_temp_curr_tcb = ult_pop_from_list(ult_ready_tcb);
@@ -115,7 +115,7 @@ void ult_scheduler() {
 void ult_scheduler_ticksleep() {
     struct timespec ts = {
             0,
-            SCHEDULER_TICK * 1000 // microsecond to nanosecond
+            SCHEDULER_TICK * 1000 // 转换 microsecond to nanosecond
     };
     while (nanosleep(&ts, &ts) == -1) {
     }
@@ -279,10 +279,10 @@ void ult_thread_create(void (*func)(), void *arg) {
     signal(SIGALRM, ult_scheduler);
 }
 
-void ult_thread_sleep(long int milltime) {
+void ult_thread_sleep(long int millisecond) {
     signal(SIGALRM, SIG_IGN);
     ult_curr_tcb->status = ULT_STATUS_SLEEP;
-    ult_curr_tcb->sleep_remain = ((long long int) milltime) * 1000000;
+    ult_curr_tcb->sleep_remain = ((long long int) millisecond) * 1000000;
     ult_scheduler();
 }
 

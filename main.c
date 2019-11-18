@@ -7,7 +7,7 @@ void test() {
         t++;
         if (i % 100000 == 0) {
             printf("Thread TID %d start sleep\n", ult_gettid());
-            ult_thread_sleep(1000);
+            ult_thread_sleep(10000);
             printf("Thread TID %d wakeup\n", ult_gettid());
             printf("Count Test: %d\n", t);
         }
@@ -25,6 +25,6 @@ int main() {
         printf("Test\n");
         count++;
         ult_thread_create(&test, NULL);
-        ult_thread_sleep(1000);
+        ult_thread_sleep(10000);
     }
 }
