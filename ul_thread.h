@@ -14,4 +14,6 @@ void ult_scheduler_ticksleep();
 void ult_debug_all_list();
 void ult_schedule_sleep_thread();
 int ult_get_tid();
+unsigned short ult_get_priority();
+void ult_set_priority(unsigned short priority);
 #endif //ULT_UL_THREAD_H

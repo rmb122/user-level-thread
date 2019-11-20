@@ -27,10 +27,12 @@ typedef struct __ult_tcb {
     ucontext_t *context;
     void *stack_ptr;
     void *exit_stack_ptr;
+
     int tid;
     int status;
-    unsigned int priority;
-    unsigned int vpriority;
+    int joined_tid;
+    unsigned short priority;
+    unsigned short vpriority;
     long long int sleep_remain;
 } ult_tcb;
 
@@ -38,7 +40,8 @@ enum {
     ULT_STATUS_RUNNING = 0,
     ULT_STATUS_READY = 1,
     ULT_STATUS_SLEEP = 2,
-    ULT_STATUS_DEAD = 3
+    ULT_STATUS_DEAD = 3,
+    ULT_STATUS_JOINED = 4,
 };
 
 static int SCHEDULER_TICK = 10000; // 大概一秒调度 100 次
@@ -51,6 +54,7 @@ static ult_tcb *ult_curr_tcb;
 static ult_tcb *ult_ready_tcb;
 static ult_tcb *ult_dead_tcb;
 static ult_tcb *ult_sleep_tcb;
+static ult_tcb *ult_joined_tcb;
 
 static ult_tcb *__ult_temp_tcb_a = NULL;
 static ult_tcb *__ult_temp_tcb_b = NULL;
@@ -90,9 +94,20 @@ void ult_scheduler() {
             }
             signal(SIGVTALRM, ult_scheduler);
             break;
+
         case ULT_STATUS_DEAD:
             ult_clean_dead_thread();
             ult_tcb_add_to_list(ult_curr_tcb, ult_dead_tcb);
+
+            __ult_temp_tcb_a = ult_joined_tcb->next;
+            while (__ult_temp_tcb_a != NULL) {
+                __ult_temp_tcb_b = __ult_temp_tcb_a->next;
+                if (__ult_temp_tcb_a->joined_tid == ult_curr_tcb->tid) {
+                    __ult_temp_tcb_a->status = ULT_STATUS_READY;
+                    ult_tcb_add_to_list(__ult_temp_tcb_a, ult_ready_tcb);
+                }
+                __ult_temp_tcb_a = __ult_temp_tcb_b;
+            }
 
             __ult_temp_curr_tcb = ult_pop_from_list(ult_ready_tcb);
             while (__ult_temp_curr_tcb == NULL) {
@@ -105,10 +120,12 @@ void ult_scheduler() {
             signal(SIGVTALRM, ult_scheduler);
             setcontext(ult_curr_tcb->context);
             break;
+
         case ULT_STATUS_SLEEP: // 进入这里的分支一定是 ULT_STATUS_SLEEP, 所以不用额外再设置一遍
             __ult_temp_tcb_a = ult_curr_tcb;
             ult_tcb_add_to_list(ult_curr_tcb, ult_sleep_tcb);
             __ult_temp_curr_tcb = ult_pop_from_list(ult_ready_tcb);
+
             while (__ult_temp_curr_tcb == NULL) {
                 ult_scheduler_ticksleep();
                 ult_schedule_sleep_thread();
@@ -119,6 +136,26 @@ void ult_scheduler() {
             signal(SIGVTALRM, ult_scheduler);
             swapcontext(__ult_temp_tcb_a->context, ult_curr_tcb->context);
             break;
+
+        case ULT_STATUS_JOINED:
+            __ult_temp_tcb_a = ult_curr_tcb;
+            ult_tcb_add_to_list(ult_curr_tcb, ult_joined_tcb);
+            __ult_temp_curr_tcb = ult_pop_from_list(ult_ready_tcb);
+
+            while (__ult_temp_curr_tcb == NULL) {
+                ult_scheduler_ticksleep();
+                ult_schedule_sleep_thread();
+                __ult_temp_curr_tcb = ult_pop_from_list(ult_ready_tcb);
+            }
+
+            ult_curr_tcb = __ult_temp_curr_tcb;
+            ult_curr_tcb->status = ULT_STATUS_RUNNING;
+            signal(SIGVTALRM, ult_scheduler);
+            swapcontext(__ult_temp_tcb_a->context, ult_curr_tcb->context);
+            break;
+
+        default:
+            printf("[FATAL] Unexpected thread status %d\n", ult_curr_tcb->status);
     }
 }
 
@@ -138,6 +175,7 @@ void ult_schedule_sleep_thread() {
             ((long long int)ult_last_sleep_schedule.tv_sec * 1000000000 + (long long int)ult_last_sleep_schedule.tv_nsec);
     ult_tcb *curr = ult_sleep_tcb->next;
     ult_tcb *tmp = NULL;
+
     while (curr != NULL) {
         curr->sleep_remain -= time_diff;
         tmp = curr->next;
@@ -198,7 +236,6 @@ void ult_tcb_add_to_list(ult_tcb *tcb, ult_tcb *tcb_list) {
         tcb_list->next->prev = tcb;
     }
     tcb_list->next = tcb;
-    ult_debug_all_list();
 }
 
 ult_tcb *ult_pop_from_list(ult_tcb *tcb_list) {
@@ -229,9 +266,10 @@ void ult_debug_print_list(ult_tcb *tcb_list, char *name) {
 }
 
 void ult_debug_all_list() {
-    ult_debug_print_list(ult_sleep_tcb, "sleep");
-    ult_debug_print_list(ult_ready_tcb, "ready");
-    ult_debug_print_list(ult_dead_tcb, " dead");
+    ult_debug_print_list(ult_sleep_tcb, " sleep");
+    ult_debug_print_list(ult_ready_tcb, " ready");
+    ult_debug_print_list(ult_dead_tcb, " dead ");
+    ult_debug_print_list(ult_joined_tcb, "joined");
     printf("=====================\n");
 }
 
@@ -263,6 +301,7 @@ void ult_init_main_context() {
         ult_curr_tcb->tid = ult_thread_count;
         ult_curr_tcb->priority = 1;
         ult_curr_tcb->vpriority = 1;
+        ult_curr_tcb->joined_tid = -1;
         ult_thread_count++;
 
         ult_ready_tcb = malloc(sizeof(ult_tcb));
@@ -271,12 +310,15 @@ void ult_init_main_context() {
         ult_dead_tcb->tid = -1;
         ult_sleep_tcb = malloc(sizeof(ult_tcb));
         ult_sleep_tcb->tid = -1;
+        ult_joined_tcb = malloc(sizeof(ult_tcb));
+        ult_joined_tcb->tid = -1;
+
         clock_gettime(CLOCK_REALTIME, &ult_last_sleep_schedule); // 定时信号, 按实际时间来
         ult_settimer();
     }
 }
 
-void ult_thread_create(void (*func)(), void *arg, int priority) {
+int ult_thread_create(void (*func)(), void *arg, unsigned short priority) {
     signal(SIGVTALRM, SIG_IGN);
 
     ult_init_main_context();
@@ -291,10 +333,12 @@ void ult_thread_create(void (*func)(), void *arg, int priority) {
     tcb->sleep_remain = 0;
     tcb->priority = priority;
     tcb->vpriority = priority;
+    tcb->joined_tid = -1;
     ult_thread_count++;
 
     ult_tcb_add_to_list(tcb, ult_ready_tcb);
     ult_scheduler();
+    return tcb->tid;
 }
 
 void ult_thread_sleep(long int millisecond) {
@@ -304,11 +348,71 @@ void ult_thread_sleep(long int millisecond) {
     ult_scheduler();
 }
 
-int ult_get_priority() {
+ult_tcb* ult_find_tcb_in_list(ult_tcb *tcb_list, int tid) {
+    while (tcb_list->next != NULL) {
+        if (tcb_list->next->tid == tid) {
+            return tcb_list->next;
+        }
+        tcb_list = tcb_list->next;
+    }
+    return NULL;
+}
+
+ult_tcb* ult_thread_find(int tid) {
+    ult_tcb *target;
+    target = ult_find_tcb_in_list(ult_ready_tcb, tid);
+    if (target != NULL) {
+        return target;
+    }
+
+    target = ult_find_tcb_in_list(ult_sleep_tcb, tid);
+    if (target != NULL) {
+        return target;
+    }
+
+    target = ult_find_tcb_in_list(ult_joined_tcb, tid);
+    if (target != NULL) {
+        return target;
+    }
+    return NULL;
+}
+
+int ult_thread_join(int tid) {
+    signal(SIGVTALRM, SIG_IGN);
+    ult_tcb *tmp;
+    ult_tcb *target;
+
+    if (tid == ult_curr_tcb->tid) {
+        return 0; // 不能 join 自己
+    }
+
+    target = ult_thread_find(tid);
+
+    if (target == NULL) { // 不能 join 一个不存在的线程
+        return 0;
+    }
+
+    tmp = target;
+    while (tmp != NULL) {
+        tmp = ult_thread_find(tmp->joined_tid); // 不能循环 join, 否则会死锁
+        if (tmp != NULL && tmp->tid == ult_curr_tcb->tid) {
+            return 0;
+        }
+        printf("%p\n", tmp);
+    }
+    printf("123213213\n");
+
+    ult_curr_tcb->joined_tid = tid;
+    ult_curr_tcb->status = ULT_STATUS_JOINED;
+    ult_scheduler();
+    return 1;
+}
+
+unsigned short ult_get_priority() {
     return ult_curr_tcb->priority;
 }
 
-void ult_set_priority(int priority) {
+void ult_set_priority(unsigned short priority) {
     ult_curr_tcb->priority = priority;
 }
 
