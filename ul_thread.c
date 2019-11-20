@@ -105,6 +105,10 @@ void ult_scheduler() {
                 if (__ult_temp_tcb_a->joined_tid == ult_curr_tcb->tid) {
                     __ult_temp_tcb_a->status = ULT_STATUS_READY;
                     __ult_temp_tcb_a->joined_tid = -1;
+                    __ult_temp_tcb_a->prev->next = __ult_temp_tcb_a->next;
+                    if (__ult_temp_tcb_a->next != NULL) {
+                        __ult_temp_tcb_a->next->prev = __ult_temp_tcb_a->prev;
+                    }
                     ult_tcb_add_to_list(__ult_temp_tcb_a, ult_ready_tcb);
                 }
                 __ult_temp_tcb_a = __ult_temp_tcb_b;

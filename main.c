@@ -20,10 +20,10 @@ void test() {
 int main() {
     int tid = ult_thread_create(&test, NULL, 2);
     //ult_thread_exit();
-    //ult_thread_sleep(644);
+    ult_thread_sleep(644);
     ult_thread_create(&test, NULL, 1);
-    //ult_thread_sleep(322);
-    //ult_thread_create(&test, NULL, 3);
+    ult_thread_sleep(322);
+    ult_thread_create(&test, NULL, 3);
     int count = 0;
     ult_set_priority(3);
     printf("tid: %d\n", tid);
@@ -31,12 +31,12 @@ int main() {
     printf("Target thread complete!\n");
     ult_thread_join(3);
     printf("Target thread complete!\n");
-    /*
+
     for(;;) {
         printf("Test\n");
-        //count++;
-        //ult_thread_create(&test, NULL, 2);
-        //ult_thread_sleep(10000000);
+        count++;
+        ult_thread_create(&test, NULL, 2);
+        ult_thread_sleep(20000);
+        return 0;
     }
-     */
 }
