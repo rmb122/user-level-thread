@@ -70,6 +70,13 @@ void ult_scheduler() {
     switch (ult_curr_tcb->status) {
         case ULT_STATUS_READY:
         case ULT_STATUS_RUNNING: // 在运行状态下, 至少会有一个线程在运行, 不用确认 ready 是否为空
+            if (ult_curr_tcb->status == ULT_STATUS_RUNNING) {
+                ult_curr_tcb->vpriority -= 1;
+                if (ult_curr_tcb->vpriority == 0) {
+                    ult_curr_tcb->vpriority = ult_curr_tcb->priority;
+                }
+            }
+
             ult_curr_tcb->status = ULT_STATUS_READY;
             ult_tcb_add_to_list(ult_curr_tcb, ult_ready_tcb);
             __ult_temp_tcb_a = ult_pop_from_list(ult_ready_tcb);
@@ -182,7 +189,7 @@ void ult_thread_exit() {
 }
 
 void ult_tcb_add_to_list(ult_tcb *tcb, ult_tcb *tcb_list) {
-    while (tcb_list->next != NULL && tcb_list->next->priority >= tcb->priority) { // 在一个优先度比自己低的线程前面插入, 同时在这个优先度里面是最后一个
+    while (tcb_list->next != NULL && tcb_list->next->vpriority >= tcb->vpriority) { // 在一个优先度比自己低的线程前面插入, 同时在这个优先度里面是最后一个
         tcb_list = tcb_list->next;
     }
     tcb->prev = tcb_list;

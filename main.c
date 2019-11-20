@@ -21,9 +21,9 @@ int main() {
     ult_thread_sleep(644);
     ult_thread_create(&test, NULL, 1);
     ult_thread_sleep(322);
-    ult_thread_create(&test, NULL, 100);
+    ult_thread_create(&test, NULL, 3);
     int count = 0;
-    ult_set_priority(100);
+    ult_set_priority(3);
     for(;;) {
         printf("Test\n");
         //count++;
