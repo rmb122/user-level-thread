@@ -13,5 +13,5 @@ void ult_debug_print_list(ult_tcb *tcb_list, char *name);
 void ult_scheduler_ticksleep();
 void ult_debug_all_list();
 void ult_schedule_sleep_thread();
-int ult_gettid();
+int ult_get_tid();
 #endif //ULT_UL_THREAD_H

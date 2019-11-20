@@ -29,7 +29,8 @@ typedef struct __ult_tcb {
     void *exit_stack_ptr;
     int tid;
     int status;
-    int priority;
+    unsigned int priority;
+    unsigned int vpriority;
     long long int sleep_remain;
 } ult_tcb;
 
@@ -42,7 +43,7 @@ enum {
 
 static int SCHEDULER_TICK = 10000; // 大概一秒调度 100 次
 static int ULT_STACK_SIZE = 10240;
-static int ult_thread_count = 0;
+static int ult_thread_count = 1;
 static ucontext_t *ult_main_context = NULL;
 
 static ult_tcb *ult_curr_tcb;
@@ -58,7 +59,7 @@ static ult_tcb *__ult_temp_curr_tcb = NULL;
 struct timespec ult_last_sleep_schedule = {0, 0};
 
 void ult_scheduler() {
-    signal(SIGALRM, SIG_IGN);
+    signal(SIGVTALRM, SIG_IGN);
     __ult_temp_tcb_a = NULL;
     __ult_temp_tcb_b = NULL;
     __ult_temp_curr_tcb = NULL;
@@ -67,18 +68,20 @@ void ult_scheduler() {
         ult_schedule_sleep_thread();
     }
     switch (ult_curr_tcb->status) {
+        case ULT_STATUS_READY:
         case ULT_STATUS_RUNNING: // 在运行状态下, 至少会有一个线程在运行, 不用确认 ready 是否为空
+            ult_curr_tcb->status = ULT_STATUS_READY;
             ult_tcb_add_to_list(ult_curr_tcb, ult_ready_tcb);
             __ult_temp_tcb_a = ult_pop_from_list(ult_ready_tcb);
-            __ult_temp_tcb_b = ult_curr_tcb;
-            if (__ult_temp_tcb_a != __ult_temp_tcb_b) {
-                __ult_temp_tcb_b->status = ULT_STATUS_READY;
+            __ult_temp_tcb_a ->status = ULT_STATUS_RUNNING;
+
+            if (__ult_temp_tcb_a != ult_curr_tcb) {
+                __ult_temp_tcb_b = ult_curr_tcb;
                 ult_curr_tcb = __ult_temp_tcb_a;
-                ult_curr_tcb->status = ULT_STATUS_RUNNING;
-                signal(SIGALRM, ult_scheduler);
+                signal(SIGVTALRM, ult_scheduler);
                 swapcontext(__ult_temp_tcb_b->context, ult_curr_tcb->context);
             }
-            signal(SIGALRM, ult_scheduler);
+            signal(SIGVTALRM, ult_scheduler);
             break;
         case ULT_STATUS_DEAD:
             ult_clean_dead_thread();
@@ -92,7 +95,7 @@ void ult_scheduler() {
             }
             ult_curr_tcb = __ult_temp_curr_tcb;
             ult_curr_tcb->status = ULT_STATUS_RUNNING;
-            signal(SIGALRM, ult_scheduler);
+            signal(SIGVTALRM, ult_scheduler);
             setcontext(ult_curr_tcb->context);
             break;
         case ULT_STATUS_SLEEP: // 进入这里的分支一定是 ULT_STATUS_SLEEP, 所以不用额外再设置一遍
@@ -106,7 +109,7 @@ void ult_scheduler() {
             }
             ult_curr_tcb = __ult_temp_curr_tcb;
             ult_curr_tcb->status = ULT_STATUS_RUNNING;
-            signal(SIGALRM, ult_scheduler);
+            signal(SIGVTALRM, ult_scheduler);
             swapcontext(__ult_temp_tcb_a->context, ult_curr_tcb->context);
             break;
     }
@@ -123,7 +126,7 @@ void ult_scheduler_ticksleep() {
 
 void ult_schedule_sleep_thread() {
     struct timespec curr_time = {0, 0};
-    clock_gettime(CLOCK_REALTIME, &curr_time); // 睡眠按照实际时间来
+    clock_gettime(CLOCK_REALTIME, &curr_time); // 睡眠按照实际时间来, 中断按照进程运行时间来
     long long int time_diff = ((long long int)curr_time.tv_sec * 1000000000 + (long long int)curr_time.tv_nsec) -
             ((long long int)ult_last_sleep_schedule.tv_sec * 1000000000 + (long long int)ult_last_sleep_schedule.tv_nsec);
     ult_tcb *curr = ult_sleep_tcb->next;
@@ -146,13 +149,13 @@ void ult_schedule_sleep_thread() {
 }
 
 void ult_settimer() {
-    signal(SIGALRM, ult_scheduler);
+    signal(SIGVTALRM, ult_scheduler);
     struct itimerval value;
     value.it_value.tv_sec = 0;
     value.it_value.tv_usec = 1;
     value.it_interval.tv_sec = 0;
     value.it_interval.tv_usec = SCHEDULER_TICK;
-    setitimer(ITIMER_REAL, &value, NULL);
+    setitimer(ITIMER_VIRTUAL, &value, NULL);
 }
 
 ucontext_t* ult_make_context(void (*func)(), ucontext_t *link_context, void *arg) {
@@ -173,18 +176,22 @@ ucontext_t* ult_make_context(void (*func)(), ucontext_t *link_context, void *arg
 }
 
 void ult_thread_exit() {
-    signal(SIGALRM, SIG_IGN);
+    signal(SIGVTALRM, SIG_IGN);
     ult_curr_tcb->status = ULT_STATUS_DEAD;
     ult_scheduler();
 }
 
 void ult_tcb_add_to_list(ult_tcb *tcb, ult_tcb *tcb_list) {
-    while (tcb_list->next != NULL) {
+    while (tcb_list->next != NULL && tcb_list->next->priority >= tcb->priority) { // 在一个优先度比自己低的线程前面插入, 同时在这个优先度里面是最后一个
         tcb_list = tcb_list->next;
     }
     tcb->prev = tcb_list;
-    tcb->next = NULL;
+    tcb->next = tcb_list->next;
+    if (tcb_list->next != NULL) {
+        tcb_list->next->prev = tcb;
+    }
     tcb_list->next = tcb;
+    ult_debug_all_list();
 }
 
 ult_tcb *ult_pop_from_list(ult_tcb *tcb_list) {
@@ -202,13 +209,13 @@ ult_tcb *ult_pop_from_list(ult_tcb *tcb_list) {
 }
 
 void ult_debug_print_list(ult_tcb *tcb_list, char *name) {
-    printf("tid: %d | name: %s", ult_gettid(), name);
+    printf("tid: %d | name: %s", ult_get_tid(), name);
     if (tcb_list->tid != -1 || tcb_list->status != 0) {
         printf("[FATAL] tcb_list->tid != -1 || tcb_list->status != 0");
     }
     tcb_list = tcb_list->next;
     while (tcb_list != NULL) {
-        printf(" | tid: %d, status: %d", tcb_list->tid, tcb_list->status);
+        printf(" | tid: %d, status: %d, priority: %d, vpriority: %d", tcb_list->tid, tcb_list->status, tcb_list->priority, tcb_list->vpriority);
         tcb_list = tcb_list->next;
     }
     printf("\n");
@@ -247,6 +254,8 @@ void ult_init_main_context() {
         ult_curr_tcb->next = NULL;
         ult_curr_tcb->prev = NULL;
         ult_curr_tcb->tid = ult_thread_count;
+        ult_curr_tcb->priority = 1;
+        ult_curr_tcb->vpriority = 1;
         ult_thread_count++;
 
         ult_ready_tcb = malloc(sizeof(ult_tcb));
@@ -260,8 +269,8 @@ void ult_init_main_context() {
     }
 }
 
-void ult_thread_create(void (*func)(), void *arg) {
-    signal(SIGALRM, SIG_IGN);
+void ult_thread_create(void (*func)(), void *arg, int priority) {
+    signal(SIGVTALRM, SIG_IGN);
 
     ult_init_main_context();
     ucontext_t *exit_ucontext = ult_make_context(&ult_thread_exit, NULL, NULL);
@@ -273,19 +282,29 @@ void ult_thread_create(void (*func)(), void *arg) {
     tcb->tid = ult_thread_count;
     tcb->context = ucontext;
     tcb->sleep_remain = 0;
+    tcb->priority = priority;
+    tcb->vpriority = priority;
     ult_thread_count++;
 
     ult_tcb_add_to_list(tcb, ult_ready_tcb);
-    signal(SIGALRM, ult_scheduler);
+    ult_scheduler();
 }
 
 void ult_thread_sleep(long int millisecond) {
-    signal(SIGALRM, SIG_IGN);
+    signal(SIGVTALRM, SIG_IGN);
     ult_curr_tcb->status = ULT_STATUS_SLEEP;
     ult_curr_tcb->sleep_remain = ((long long int) millisecond) * 1000000;
     ult_scheduler();
 }
 
-int ult_gettid() {
+int ult_get_priority() {
+    return ult_curr_tcb->priority;
+}
+
+void ult_set_priority(int priority) {
+    ult_curr_tcb->priority = priority;
+}
+
+int ult_get_tid() {
     return ult_curr_tcb->tid;
 }
