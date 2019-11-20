@@ -104,6 +104,7 @@ void ult_scheduler() {
                 __ult_temp_tcb_b = __ult_temp_tcb_a->next;
                 if (__ult_temp_tcb_a->joined_tid == ult_curr_tcb->tid) {
                     __ult_temp_tcb_a->status = ULT_STATUS_READY;
+                    __ult_temp_tcb_a->joined_tid = -1;
                     ult_tcb_add_to_list(__ult_temp_tcb_a, ult_ready_tcb);
                 }
                 __ult_temp_tcb_a = __ult_temp_tcb_b;
@@ -259,7 +260,8 @@ void ult_debug_print_list(ult_tcb *tcb_list, char *name) {
     }
     tcb_list = tcb_list->next;
     while (tcb_list != NULL) {
-        printf(" | tid: %d, status: %d, priority: %d, vpriority: %d", tcb_list->tid, tcb_list->status, tcb_list->priority, tcb_list->vpriority);
+        printf(" | tid: %d, status: %d, priority: %d, vpriority: %d, joined %d,",
+                tcb_list->tid, tcb_list->status, tcb_list->priority, tcb_list->vpriority, tcb_list->joined_tid);
         tcb_list = tcb_list->next;
     }
     printf("\n");
@@ -383,24 +385,25 @@ int ult_thread_join(int tid) {
     ult_tcb *target;
 
     if (tid == ult_curr_tcb->tid) {
+        signal(SIGVTALRM, ult_scheduler);
         return 0; // 不能 join 自己
     }
 
     target = ult_thread_find(tid);
 
     if (target == NULL) { // 不能 join 一个不存在的线程
+        signal(SIGVTALRM, ult_scheduler);
         return 0;
     }
 
     tmp = target;
     while (tmp != NULL) {
-        tmp = ult_thread_find(tmp->joined_tid); // 不能循环 join, 否则会死锁
-        if (tmp != NULL && tmp->tid == ult_curr_tcb->tid) {
+        if (tmp->joined_tid == ult_curr_tcb->tid) {
+            signal(SIGVTALRM, ult_scheduler);
             return 0;
         }
-        printf("%p\n", tmp);
+        tmp = ult_thread_find(tmp->joined_tid); // 不能循环 join, 否则会死锁
     }
-    printf("123213213\n");
 
     ult_curr_tcb->joined_tid = tid;
     ult_curr_tcb->status = ULT_STATUS_JOINED;

@@ -28,9 +28,9 @@ int main() {
     ult_set_priority(3);
     printf("tid: %d\n", tid);
     ult_thread_join(2);
-    printf("Target thread complete!");
+    printf("Target thread complete!\n");
     ult_thread_join(3);
-    printf("Target thread complete!");
+    printf("Target thread complete!\n");
     /*
     for(;;) {
         printf("Test\n");
