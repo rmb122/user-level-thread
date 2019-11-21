@@ -20,6 +20,10 @@
 #define DEBUG_PRINT(...)
 #endif
 
+typedef struct {
+    int count;
+} ult_mutex;
+
 typedef struct __ult_tcb {
     struct __ult_tcb *prev;
     struct __ult_tcb *next;
@@ -31,6 +35,8 @@ typedef struct __ult_tcb {
     int tid;
     int status;
     int joined_tid;
+    ult_mutex *mutex_blocked;
+
     unsigned short priority;
     unsigned short vpriority;
     long long int sleep_remain;
@@ -42,6 +48,7 @@ enum {
     ULT_STATUS_SLEEP = 2,
     ULT_STATUS_DEAD = 3,
     ULT_STATUS_JOINED = 4,
+    ULT_STATUS_BLOCKED = 5,
 };
 
 static int SCHEDULER_TICK = 10000; // 大概一秒调度 100 次
@@ -55,6 +62,7 @@ static ult_tcb *ult_ready_tcb;
 static ult_tcb *ult_dead_tcb;
 static ult_tcb *ult_sleep_tcb;
 static ult_tcb *ult_joined_tcb;
+static ult_tcb *ult_blocked_tcb;
 
 static ult_tcb *__ult_temp_tcb_a = NULL;
 static ult_tcb *__ult_temp_tcb_b = NULL;
@@ -272,10 +280,11 @@ void ult_debug_print_list(ult_tcb *tcb_list, char *name) {
 }
 
 void ult_debug_all_list() {
-    ult_debug_print_list(ult_sleep_tcb, " sleep");
-    ult_debug_print_list(ult_ready_tcb, " ready");
-    ult_debug_print_list(ult_dead_tcb, " dead ");
-    ult_debug_print_list(ult_joined_tcb, "joined");
+    ult_debug_print_list(ult_sleep_tcb, " sleep ");
+    ult_debug_print_list(ult_ready_tcb, " ready ");
+    ult_debug_print_list(ult_dead_tcb, "  dead ");
+    ult_debug_print_list(ult_joined_tcb, " joined");
+    ult_debug_print_list(ult_blocked_tcb, "blocked");
     printf("=====================\n");
 }
 
@@ -304,6 +313,7 @@ void ult_init_main_context() {
         ult_curr_tcb->status = ULT_STATUS_RUNNING;
         ult_curr_tcb->next = NULL;
         ult_curr_tcb->prev = NULL;
+        ult_curr_tcb->mutex_blocked = NULL;
         ult_curr_tcb->tid = ult_thread_count;
         ult_curr_tcb->priority = 1;
         ult_curr_tcb->vpriority = 1;
@@ -318,6 +328,8 @@ void ult_init_main_context() {
         ult_sleep_tcb->tid = -1;
         ult_joined_tcb = malloc(sizeof(ult_tcb));
         ult_joined_tcb->tid = -1;
+        ult_blocked_tcb = malloc(sizeof(ult_tcb));
+        ult_blocked_tcb->tid = -1;
 
         clock_gettime(CLOCK_REALTIME, &ult_last_sleep_schedule); // 定时信号, 按实际时间来
         ult_settimer();
@@ -340,6 +352,7 @@ int ult_thread_create(void (*func)(), void *arg, unsigned short priority) {
     tcb->priority = priority;
     tcb->vpriority = priority;
     tcb->joined_tid = -1;
+    tcb->mutex_blocked = NULL;
     ult_thread_count++;
 
     ult_tcb_add_to_list(tcb, ult_ready_tcb);
@@ -377,6 +390,11 @@ ult_tcb* ult_thread_find(int tid) {
     }
 
     target = ult_find_tcb_in_list(ult_joined_tcb, tid);
+    if (target != NULL) {
+        return target;
+    }
+
+    target = ult_find_tcb_in_list(ult_blocked_tcb, tid);
     if (target != NULL) {
         return target;
     }
