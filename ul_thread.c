@@ -490,6 +490,7 @@ void ult_mutex_release(ult_mutex *mutex) {
                 signal(SIGVTALRM, ult_scheduler);
                 return;
             }
+            curr = curr->next;
         }
         printf("[FATAL ERROR] Can't found a thread that acquire this lock\n");
     }

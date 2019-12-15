@@ -69,6 +69,12 @@ void mutex_test() {
     ult_thread_create(&consumer, mutex, 1);
     ult_thread_create(&consumer, mutex, 1);
     int tid = ult_thread_create(&producer, mutex, 1);
+
+    ult_mutex *mutex2 = ult_new_mutex(0);
+    ult_thread_create(&consumer, mutex2, 1);
+    ult_thread_create(&consumer, mutex2, 1);
+    ult_thread_create(&consumer, mutex2, 1);
+    int tid2 = ult_thread_create(&producer, mutex2, 1);
     ult_thread_join(tid);
 }
 
