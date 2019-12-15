@@ -24,7 +24,7 @@ typedef struct {
     int count;
 } ult_mutex;
 
-typedef struct __ult_tcb {
+typedef struct __ult_tcb { // tcb 定义
     struct __ult_tcb *prev;
     struct __ult_tcb *next;
 
@@ -153,6 +153,23 @@ void ult_scheduler() {
         case ULT_STATUS_JOINED:
             __ult_temp_tcb_a = ult_curr_tcb;
             ult_tcb_add_to_list(ult_curr_tcb, ult_joined_tcb);
+            __ult_temp_curr_tcb = ult_pop_from_list(ult_ready_tcb);
+
+            while (__ult_temp_curr_tcb == NULL) {
+                ult_scheduler_ticksleep();
+                ult_schedule_sleep_thread();
+                __ult_temp_curr_tcb = ult_pop_from_list(ult_ready_tcb);
+            }
+
+            ult_curr_tcb = __ult_temp_curr_tcb;
+            ult_curr_tcb->status = ULT_STATUS_RUNNING;
+            signal(SIGVTALRM, ult_scheduler);
+            swapcontext(__ult_temp_tcb_a->context, ult_curr_tcb->context);
+            break;
+
+        case ULT_STATUS_BLOCKED:
+            __ult_temp_tcb_a = ult_curr_tcb;
+            ult_tcb_add_to_list(ult_curr_tcb, ult_blocked_tcb);
             __ult_temp_curr_tcb = ult_pop_from_list(ult_ready_tcb);
 
             while (__ult_temp_curr_tcb == NULL) {
@@ -431,6 +448,52 @@ int ult_thread_join(int tid) {
     ult_curr_tcb->status = ULT_STATUS_JOINED;
     ult_scheduler();
     return 1;
+}
+
+ult_mutex *ult_new_mutex(int count) {
+    ult_mutex *mutex = malloc(sizeof(ult_mutex));
+    mutex->count = count;
+    return mutex;
+}
+
+void ult_mutex_acquire(ult_mutex *mutex) {
+    signal(SIGVTALRM, SIG_IGN);
+    mutex->count -= 1;
+    if (mutex->count < 0) {
+        ult_curr_tcb->mutex_blocked = mutex;
+        ult_curr_tcb->status = ULT_STATUS_BLOCKED;
+        ult_scheduler();
+    } else {
+        signal(SIGVTALRM, ult_scheduler);
+    }
+}
+
+void ult_mutex_release(ult_mutex *mutex) {
+    signal(SIGVTALRM, SIG_IGN);
+    mutex->count += 1;
+    if (mutex->count <= 0) {
+        ult_tcb *curr = ult_blocked_tcb;
+        ult_tcb *temp;
+
+        while (curr->next != NULL) {
+            if (curr->next->mutex_blocked == mutex) {
+                temp = curr->next;
+                temp->status = ULT_STATUS_READY;
+                temp->mutex_blocked = NULL;
+
+                temp->prev->next = temp->next;
+                if (temp->next != NULL) {
+                    temp->next->prev = temp->prev;
+                }
+
+                ult_tcb_add_to_list(temp, ult_ready_tcb);
+                signal(SIGVTALRM, ult_scheduler);
+                return;
+            }
+        }
+        printf("[FATAL ERROR] Can't found a thread that acquire this lock\n");
+    }
+    signal(SIGVTALRM, ult_scheduler);
 }
 
 unsigned short ult_get_priority() {
