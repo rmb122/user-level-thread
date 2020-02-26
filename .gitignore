@@ -5,3 +5,5 @@ peda*
 *.out
 .gdb_history
 *.so
+main
+out
