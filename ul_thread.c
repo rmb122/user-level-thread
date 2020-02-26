@@ -37,6 +37,12 @@ void ult_scheduler()
     __ult_temp_tcb_b = NULL;
     __ult_temp_curr_tcb = NULL;
 
+
+    //if (ult_curr_tcb->status == 0) {
+    //    ult_debug_all_list();
+    //    printf("ult_curr_tcb->status: %d\n", ult_curr_tcb->status);
+    //}
+
     if (ult_curr_tcb->status != ULT_STATUS_SLEEP)
     {
         ult_schedule_sleep_thread();
@@ -46,9 +52,15 @@ void ult_scheduler()
     {
         case ULT_STATUS_READY:
         case ULT_STATUS_RUNNING: // 在运行状态下, 至少会有一个线程在运行, 不用确认 ready 是否为空
+
             if (ult_curr_tcb->status == ULT_STATUS_RUNNING)
             {
-                ult_curr_tcb->vpriority -= 1;
+                if (ult_curr_tcb->priority != PRIORITY_MAX)
+                {
+                    //printf("%d\n", ult_curr_tcb->priority);
+                    ult_curr_tcb->vpriority -= 1;
+                    //printf("%d\n", ult_curr_tcb->priority);
+                }
                 if (ult_curr_tcb->vpriority == 0)
                 {
                     ult_curr_tcb->vpriority = ult_curr_tcb->priority;
@@ -339,14 +351,19 @@ void ult_init_main_context()
 
         ult_ready_tcb = malloc(sizeof(ult_tcb));
         ult_ready_tcb->tid = -1;
+        ult_ready_tcb->next = NULL;
         ult_dead_tcb = malloc(sizeof(ult_tcb));
         ult_dead_tcb->tid = -1;
+        ult_dead_tcb->next = NULL;
         ult_sleep_tcb = malloc(sizeof(ult_tcb));
         ult_sleep_tcb->tid = -1;
+        ult_sleep_tcb->next = NULL;
         ult_joined_tcb = malloc(sizeof(ult_tcb));
         ult_joined_tcb->tid = -1;
+        ult_joined_tcb->next = NULL;
         ult_blocked_tcb = malloc(sizeof(ult_tcb));
         ult_blocked_tcb->tid = -1;
+        ult_blocked_tcb->next = NULL;
 
         clock_gettime(CLOCK_REALTIME, &ult_last_sleep_schedule); // 定时信号, 按实际时间来
         ult_settimer();
@@ -531,9 +548,26 @@ unsigned short ult_get_priority()
 void ult_set_priority(unsigned short priority)
 {
     ult_curr_tcb->priority = priority;
+    ult_curr_tcb->vpriority = priority;
 }
 
 int ult_get_tid()
 {
     return ult_curr_tcb->tid;
+}
+
+void ult_enable_scheduler()
+{
+    ult_settimer();
+}
+
+void ult_disable_scheduler()
+{
+    signal(SIGVTALRM, SIG_IGN);
+    struct itimerval value;
+    value.it_value.tv_sec = 0;
+    value.it_value.tv_usec = 0;
+    value.it_interval.tv_sec = 0;
+    value.it_interval.tv_usec = 0;
+    setitimer(ITIMER_VIRTUAL, &value, NULL);
 }

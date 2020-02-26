@@ -1,5 +1,6 @@
 #include "ul_thread.h"
 #include "stdio.h"
+#include <unistd.h>
 
 void test()
 {
@@ -16,18 +17,38 @@ void test()
             printf("Count Test: %d\n", t);
         }
     }
-    printf("status: %d\n", ult_thread_join(1));
+    //printf("status: %d\n", ult_thread_join(1));
     printf("Thread TID %d\n", ult_get_tid());
     printf("Count Test: %d\n", t);
 }
+
+/*
+ * void test_2()
+{
+    int t = 0;
+    printf("Thread TID %d\n", ult_get_tid());
+    for (int i = 0; i < 1000000; i++)
+    {
+        t++;
+        if (i % 100000 == 0)
+        {
+            printf("Thread TID %d start sleep\n", ult_get_tid());
+            ult_thread_sleep(1000);
+            printf("Thread TID %d wakeup\n", ult_get_tid());
+            printf("Count Test: %d\n", t);
+        }
+    }
+    //printf("status: %d\n", ult_thread_join(1));
+    printf("Thread TID %d\n", ult_get_tid());
+    printf("Count Test: %d\n", t);
+}
+ */
 
 void sleep_test()
 {
     int tid = ult_thread_create(&test, NULL, 2);
     //ult_thread_exit();
-    ult_thread_sleep(644);
     ult_thread_create(&test, NULL, 1);
-    ult_thread_sleep(322);
     ult_thread_create(&test, NULL, 3);
     int count = 0;
     ult_set_priority(3);
@@ -39,10 +60,10 @@ void sleep_test()
 
     for (;;)
     {
-        printf("Test\n");
-        count++;
+        //printf("Test\n");
+        //count++;
         ult_thread_create(&test, NULL, 2);
-        ult_thread_sleep(20000);
+        ult_thread_sleep(2000);
     }
 }
 
@@ -89,46 +110,84 @@ void mutex_test()
     ult_thread_join(tid);
 }
 
-int acc = 0;
 
-void accumulator()
+void printer()
 {
-    for (int i = 0; i < 10000000; i++) {
-        int y = acc;
-        acc = y + 1;
+    int t = 0;
+    while (1)
+    {
+        int count = 0;
+        printf("I am thread %d\n", ult_get_tid());
+        for (int i = 0; i < 1000000; i++)
+        {
+            count++;
+        }
+        t++;
+        if (t == 100)
+        {
+            ult_set_priority(PRIORITY_MAX);
+        }
     }
 }
 
-void accumulator_with_mutex(ult_mutex *mutex)
+void priority_test()
 {
-    printf("mutex: %p\n", mutex);
-    for (int i = 0; i < 10000000; i++) {
-        ult_mutex_acquire(mutex);
-        int y = acc;
-        acc = y + 1;
-        ult_mutex_release(mutex);
+    ult_thread_create(&printer, NULL, 1);
+    ult_thread_create(&printer, NULL, 2);
+    ult_thread_create(&printer, NULL, 3);
+    ult_thread_join(2);
+}
+
+
+void sleeper()
+{
+    printf("I am thread %d\n", ult_get_tid());
+    if (ult_get_tid() == 4)
+    {
+        printf("Now disable it\n");
+        ult_disable_scheduler();
+        for (int i = 0; i < 10000000; i++)
+        {
+            if (i % 10000 == 0)
+            {
+                printf("I am thread %d\n", ult_get_tid());
+            }
+        }
+        ult_thread_join(2);
+        ult_thread_join(3);
+
+        ult_enable_scheduler();
+        ult_thread_create(&sleeper, NULL, 1);
+        ult_thread_create(&sleeper, NULL, 1);
+        printf("Exit...\n");
+    } else
+    {
+        for (int i = 0; i < 10000000; i++)
+        {
+            if (i % 10000 == 0)
+            {
+                printf("I am thread %d\n", ult_get_tid());
+            }
+        }
+        printf("Thread %d done\n", ult_get_tid());
     }
 }
 
-void mutex_test_2()
+
+void scheduler_disable_test()
 {
-    int tid = ult_thread_create(&accumulator, NULL, 1);
-    int tid2 = ult_thread_create(&accumulator, NULL, 1);
-    ult_thread_join(tid);
-    ult_thread_join(tid2);
-
-    printf("acc: %d\n", acc);
-
-    acc = 0;
-    ult_mutex *mutex = ult_new_mutex(1);
-    tid = ult_thread_create(&accumulator_with_mutex, mutex, 1);
-    tid2 = ult_thread_create(&accumulator_with_mutex, mutex, 1);
-    ult_thread_join(tid);
-    ult_thread_join(tid2);
+    ult_thread_create(&sleeper, NULL, 1);
+    ult_thread_create(&sleeper, NULL, 1);
+    ult_thread_create(&sleeper, NULL, 1);
+    ult_thread_join(2);
+    ult_thread_join(3);
+    ult_thread_join(4);
+    ult_thread_join(5);
+    ult_thread_join(6);
 }
 
 int main()
 {
-    mutex_test_2();
+    scheduler_disable_test();
     return 0;
 }
